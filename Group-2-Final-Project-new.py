@@ -26,7 +26,6 @@ class Blockchain:
         self.mempool = {}
         self.memconpool = {}
         self.contracts = {}
-        self.transaction_messages = {}
         self.add()
 
 ###################### ADD CODE ONLY BETWEEN THESE LINES! #####################
@@ -245,7 +244,6 @@ class Blockchain:
         block['transactions'] = self._choose_transactions_from_mempool()
         block['header']['merkle_root'] = \
             self._calculate_merkle_root(list(block['transactions']))
-        block['transaction_messages'] = self.removed_transaction_from_transaction_message()
         while True:
 
             block['header']['nonce'] = binascii.b2a_hex(os.urandom(16)).decode('utf-8')
@@ -267,69 +265,22 @@ class Blockchain:
         else:
             hashId.update(data.encode('utf-8'))
             return str(hashId.hexdigest())
-
-        #Calculate gas from the transaction message
-    def client_message(self, From, To, gas_amount, Private):            
-        
+     
+    def _calculate_gas(self, message, startgas):            
+        if not message or not startgas:
+            raise Exception("Invalid data")
+        gas = len(message) * 0.001
         try:
-            transaction_message = {
-                'Time': datetime.datetime.utcnow().timestamp(),
-                'From': From,
-                'To': To,
-                'gas': gas_amount
-            }
-        except:
-            return False
-            
-            private_key = Private
-            if(not (From and From.strip())): 
-                return False
-            if(not (To and To.strip())): 
-                return False
-            if(not (private_key and private_key.strip())): 
-                return False
-            try:
-                float(gas_amount)
-            except ValueError:
-                return False
-            if From == To:
-                return False  
-            if not transaction_messages['To'] in self.wallets:
-                return False
-            if not transaction_messages['From'] in self.wallets:
-                return False
-            if not private_key == self.wallets[transaction_message['From']]['private_key']:
-                return False                       
-            if not float(gas_amount) > 0:
-                return False 
-            if not float(gas_amount) <= self.wallets[transaction_message['From']]['balance']:
-                return False
-            return True
-
-        hashed_transaction_message = self.hash_transaction(transaction_message)
-        self.transaction_messages[hashed_transaction_message] = transaction_message
-
-        return hashed_transaction_message
-    
-    def removed_transaction_from_transaction_message(self):
-
-        executed_transaction = {}
-
-        while len(self.transaction_messages) > 0:
-            transaction_id = list(self.transaction_messages)[len(self.transaction_messages) - 1]
-            transaction = copy.deepcopy(self.transaction_messages[transaction_id])
-
-            if transaction['gas'] <= self.wallets[transaction['From']]['balance']:
-
-                deducted_balance = self.wallets[transaction['From']]['balance'] - transaction['gas']
-
-                executed_transaction[transaction_id] = transaction
-            
-            del self.transaction_messages[transaction_id]
-
-        return executed_transaction
-
-
+            float(startgas)
+        except ValueError:
+            raise Exception("Invalid value")              
+        if not float(gas) > 0:
+            raise Exception("Invalid data")
+        if not float(gas) <= startgas:
+            raise Exception("Invalid data")
+        total_gas = startgas - gas
+        return total_gas
+ 
 # ------------------------------ FLASK ROUTES ------------------------------- #
 
 @app.route('/api/blockchain', methods=['GET'])
@@ -487,22 +438,6 @@ def get_mempool():
         mimetype='application/json'
     )
 
-#Transaction message sending from HTML for GAS
-@app.route('/client_message', methods = ['POST'])
-def client_message():
-
-    From = request.form['From']
-    To = request.form['To']
-    ClientMessage = request.form['Message']
-    Private = request.form['private']
-    gas_amount = len(ClientMessage) * 1.0
-    hashed_transaction_message = blockchain.send_message(From, To, gas_amount, Private)
-
-    if not hashed_transaction_message:
-        return Response(json.dumps({'Error': 'Please input a valid message.'}), status=400, mimetype='application/json')
-
-    else:
-        return Response(json.dumps({'Result': hashed_transaction_message}), status=200, mimetype='application/json')
 
 if __name__ == '__main__':
     blockchain = Blockchain()
