@@ -2,8 +2,12 @@
    <body>
       <form action = "http://localhost:8080/api/blockchain/wallet" method = "POST" 
          enctype = "multipart/form-data">
+		 Contract to upload
          <input type = "file" name = "file" />
-	 <input type = "text" name = "uploader_key" />
+		 Your Private Key
+		 <input type = "text" name = "priv_key" />
+		 Contract Public Key
+		 <input type = "text" name = "pub_key" />
          <input type = "submit"/>
       </form>   
    </body>

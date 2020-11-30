@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import os
 import binascii
 import datetime
@@ -7,98 +6,29 @@ import hashlib
 import random
 import copy
 import ast
-
+import sys
 from flask import Flask, request, json, Response, render_template
 from werkzeug.utils import secure_filename
-
 app = Flask(__name__)
-
-
 # ----------------------- BLOCKCHAIN CLASS ---------------------------------- #
-
 class Blockchain:
 
     def __init__(self):
-
         self.chain = []
         self.difficulty = 3
         self.wallets = {}
         self.mempool = {}
-        self.memconpool = {}
-        self.contracts = {}
         self.add()
-
 ###################### ADD CODE ONLY BETWEEN THESE LINES! #####################
-    
-    #TODO: HARDCODE A WALLET(ADDRESS) THAT WILL BE USED TO TRANSFER/DEDUCT FUNDS FOR THE UPLOADING OF CONTRACT
+    #This wallet is here to accept tokens contracts being uploaded, it has no private key because it cannot send tokens
+    # any tokens sent here will be essentially gone forever
 
-
-    def create_wallet(self, contract_):
-        if contract_==None:
-            wallet = {
-                'public_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
-                'private_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
-                'balance': 10.0,
-            }
-            self.wallets[wallet['public_key']] = wallet
-            return wallet
-
-        elif contract_ is not None:
-            contract = {
-                'public_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
-                'contract_code': contract_,
-            }
-            self.contracts[contract['public_key']] = contract
-            return contract
-
-
-    #TODO: CREATE A TRANSACTION HERE THAT SUBTRACTS FROM CONTRACT UPLOADERS BALANCE
-    #TODO: I NEED A GAS CALCULATION FUNCTION TO BE CALLED HERE TO GET THE COST FOR UPLOAD
-    def create_contract(self, from_, to, amount, message, startgas, public_key):
-        if not self._validate_contract(from_, to, amount, message, startgas, public_key):
-            return {'error: invalid contract definition'}
-
-            contract = {
-                'time': datetime.datetime.utcnow().timestamp(),
-                'from': from_,
-                'to': to,
-                'amount': amount,
-                'message': string(message),
-                'startgas': startgas,
-                'gasprice': gasprice._calculate_gas(message, startgas), #TODO Need to calculate gas by message and startgas
+    NULL_WALLET = {
+            'public_key': 'f1f91c30722f64de1c004423c091ce33',
+            'balance': 0.0,
             }
 
-            contract_id = self._hash_data(contract_id)
-            self.memconpool[contract_id] = contract
-
-            return{contract_id: contract}
-
-    def _validate_contract(self, from_, to, amount, message, startgas, public_key):
-
-        # Check that values actually exist
-        if not from_ or not to or not amount or not message or not startgas or not public_key:
-            return False
-
-        # Check that addresses exist and are not the same
-        if from_ not in self.wallets.keys() \
-                or to not in self.wallets.keys() \
-                or from_ == to:
-            return False
-
-        # Check that amount is float or int
-        try:
-            amount = float(amount)
-        except ValueError:
-            return False
-
-        # Check amount is valid and spendable
-        if not amount > 0 \
-                or not amount <= self.wallets[from_]['balance']:
-            return False
-
-        return True    
-    def create_transaction(self, from_, to, amount, private_key):
-
+    def create_transaction(self, from_, to, amount, private_key, message=None):
         if not self._validate_transaction(from_, to, amount, private_key):
             return {'error': 'invalid transaction'}
 
@@ -107,13 +37,34 @@ class Blockchain:
             'from': from_,
             'to': to,
             'amount': float(amount),
-            'message': {},
+            'message': message,
         }
 
         transaction_id = self._hash_data(transaction)
         self.mempool[transaction_id] = transaction
 
         return {transaction_id: transaction}
+
+    def create_wallet(self, contract_=None, priv=None, pub=None):
+        if contract_==None:
+            wallet = {
+                'public_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
+                'private_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
+                'balance': 10.0,
+            }
+            self.wallets[wallet['public_key']] = wallet
+            return wallet
+        elif contract_ is not None:
+            wallet = {
+                'public_key': binascii.b2a_hex(os.urandom(16)).decode('utf-8'),
+                'contract_code': contract_,
+            }
+            self.wallets[wallet['public_key']] = wallet 
+            print(contract_)
+            gas_price = self._calculate_gas(contract_)
+            self.create_transaction(pub, 'f1f91c30722f64de1c004423c091ce33', gas_price, priv, contract_)
+            return wallet  
+
 
     def _validate_transaction(self, from_, to, amount, private_key):
 
@@ -144,25 +95,26 @@ class Blockchain:
 
         return True
 
-    def _choose_transactions_from_mempool(self):
-
+    def _choose_transactions_from_mempool(self, block_num):
         processed_transactions = {}
-
+        contract_states = {}
         while len(processed_transactions) < 10 and len(self.mempool) > 0:
-
             transaction_id = random.choice(list(self.mempool))
             transaction = copy.deepcopy(self.mempool[transaction_id])
-
+            if type(transaction['message']) is dict:
+                prev_block = self.chain[block_num -1]
+                contract_code = self.wallets[transaction['to']]['message']
+                contract_state = prev_block['contract_states']
+                sys.argv = [contract_state[self.wallets[transaction['to']]]]
+                contract_states[self.wallets[transaction['to']]] = exec(self.wallets[transaction['to']]['message'])
+                transaction['to'] = 'f1f91c30722f64de1c004423c091ce33'
             if transaction['amount'] <= self.wallets[transaction['from']]['balance']:
-
                 self.wallets[transaction['from']]['balance'] -= transaction['amount']
                 self.wallets[transaction['to']]['balance'] += transaction['amount']
-
                 processed_transactions[transaction_id] = transaction
-
+            del sys.argv
             del self.mempool[transaction_id]
-
-        return processed_transactions
+        return processed_transactions, contract_states
 
     def _calculate_merkle_root(self, transactions):
 
@@ -189,7 +141,9 @@ class Blockchain:
         return self._calculate_merkle_root(list(block['transactions'])) \
             == block['header']['merkle_root']
 
-
+    def _calculate_gas(self, message):
+        gas_price = sys.getsizeof(message) * 0.001
+        return gas_price
 ###############################################################################
 
     @property
@@ -233,25 +187,21 @@ class Blockchain:
                 'merkle_root': None,
             },
             'transactions': {},
+            'contract_states': {},
             'hash': None
         }
-
     def _get_last_block_hash(self):
         return self.chain[-1]['hash'] if len(self.chain) > 0 else None
-
+    
     def _mine_block(self, block):
-
-        block['transactions'] = self._choose_transactions_from_mempool()
+        block['transactions'], block['contract_states'] = self._choose_transactions_from_mempool(block['header']['number'])
         block['header']['merkle_root'] = \
             self._calculate_merkle_root(list(block['transactions']))
         while True:
-
             block['header']['nonce'] = binascii.b2a_hex(os.urandom(16)).decode('utf-8')
             block['hash'] = self._hash_data(block['header'])
-
             if block['hash'][:self.difficulty] == '0' * self.difficulty:
                 break
-
         self.chain.append(block)
         return block
 
@@ -265,22 +215,8 @@ class Blockchain:
         else:
             hashId.update(data.encode('utf-8'))
             return str(hashId.hexdigest())
-     
-    def _calculate_gas(self, message, startgas):            
-        if not message or not startgas:
-            raise Exception("Invalid data")
-        gas = len(message) * 0.001
-        try:
-            float(startgas)
-        except ValueError:
-            raise Exception("Invalid value")              
-        if not float(gas) > 0:
-            raise Exception("Invalid data")
-        if not float(gas) <= startgas:
-            raise Exception("Invalid data")
-        total_gas = startgas - gas
-        return total_gas
- 
+
+
 # ------------------------------ FLASK ROUTES ------------------------------- #
 
 @app.route('/api/blockchain', methods=['GET'])
@@ -294,8 +230,6 @@ def get_blockchain_info():
         status=200,
         mimetype='application/json'
     )
-
-
 @app.route('/api/blockchain/block/<int:number>', methods=['GET'])
 def get_block(number):
     return Response(
@@ -305,8 +239,6 @@ def get_block(number):
         status=200,
         mimetype='application/json'
     )
-
-
 @app.route('/api/blockchain/block', methods=['GET'])
 def get_all_blocks():
     return Response(
@@ -314,8 +246,6 @@ def get_all_blocks():
         status=200,
         mimetype='application/json'
     )
-
-
 @app.route('/api/blockchain/block', methods=['POST'])
 def add_block():
     return Response(
@@ -323,14 +253,6 @@ def add_block():
         status=200,
         mimetype='application/json'
     )
-
-
-''' I HAVE MODIFIED THIS SO THAT, FIRSTLY, IT SHOWS A WEBPAGE THAT ALLOWS THE USER TO UPLOAD A CONTRACT IN 
-THE FORM OF A .py FILE.  IF THE USER DOES NOT UPLOAD ANYTHING, IT IS ASSUMED THAT THE USER IS JUST CREATING
-A REGULAR WALLET FOR FUNDS.  ONCE THE FORM IS SUBMITTED ON THE addwallet.html FORM, IT IS PASSED TO THE 
-create_wallet() FUNCTION WHERE THE CONTRACT CAN BE PUBLISHED IN A TRANSACTION AND FUNDS SUBTRACTED FROM THE
-UPLOADER'S WALLET.  AGAIN, IF NO .py FILE IS UPLOADED, ONLY A REGULAR WALLET IS CREATED.  SEE THE create_wallet()
-FUNCTION ABOVE FOR MORE DETAILS.'''
 
 ALLOWED_EXTENSIONS = {'.py', '.txt'}
 
@@ -340,7 +262,6 @@ def allowed_file(filename):
         return "False"
     else:
         return "True"
-
 @app.route('/api/blockchain/wallet', methods=['GET', 'POST'])
 def add_wallet():
     if request.method == 'GET':
@@ -354,22 +275,20 @@ def add_wallet():
                     )
         else:
             file_ = request.files['file']
+            priv_key = request.form['priv_key']
+            pub_key = request.form['pub_key']
             if file_.filename == '':
-                contract_dict = None
                 return Response(
-                        response=json.dumps(blockchain.create_wallet(contract_=None)),
+                        response=json.dumps(blockchain.create_wallet()),
                         status=200,
                         mimetype='application/json'
                         )
             elif file_ and allowed_file(file_.filename):
-                contractContent = file_.read()
                 return Response(
-                        response=json.dumps(blockchain.create_wallet(contract_=contractContent)),
+                        response=json.dumps(blockchain.create_wallet(contract_=file_.read(), priv=priv_key, pub=pub_key)),
                         status=200,
                         mimetype='application/json'
                         )
-
-
 @app.route('/api/blockchain/balances', methods=['GET'])
 def get_wallet_balances():
     return Response(
@@ -380,18 +299,14 @@ def get_wallet_balances():
         status=200,
         mimetype='application/json'
     )
-
-
 @app.route('/api/blockchain/transaction', methods=['POST'])
 def add_transaction():
-
     if not all(k in request.form for k in ['from', 'to', 'amount', 'private_key']):
         return Response(
             response=json.dumps({'error': 'missing required parameter(s)'}),
             status=400,
             mimetype='application/json'
         )
-
     return Response(
         response=json.dumps(
             blockchain.create_transaction(
@@ -404,32 +319,6 @@ def add_transaction():
         status=200,
         mimetype='application/json'
     )
-
-@app.route('/api/blockchain/contract', methods=['POST'])
-def add_contract():
-
-    if not all(k in request.form for k in ['from', 'to', 'amount', 'public_key', 'startgas']):
-        return Response(
-            response=json.dumps({'error': 'missing required parameter(s)'}),
-            status=400,
-            mimetype='application/json'
-        )
-
-    return Response(
-        response=json.dumps(
-            blockchain.create_contract(
-                request.form['from'],
-                request.form['to'],
-                request.form['amount'],
-                request.form['public_key'],
-                request.form['startgas'],
-            )
-        ),
-        status=200,
-        mimetype='application/json'
-    )
-
-
 @app.route('/api/blockchain/mempool', methods=['GET'])
 def get_mempool():
     return Response(
@@ -437,8 +326,6 @@ def get_mempool():
         status=200,
         mimetype='application/json'
     )
-
-
 if __name__ == '__main__':
     blockchain = Blockchain()
     app.run(host='127.0.0.1', port=8080, debug=1)
