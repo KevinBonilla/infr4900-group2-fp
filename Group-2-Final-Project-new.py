@@ -18,6 +18,7 @@ class Blockchain:
         self.difficulty = 3
         self.wallets = {}
         self.mempool = {}
+        self.state = 0
         self.add()
         NULL_WALLET = {
             'public_key': 'f1f91c30722f64de1c004423c091ce33',
@@ -30,8 +31,6 @@ class Blockchain:
     # any tokens sent here will be essentially gone forever
 
     
-
-
     def create_transaction(self, from_, to, amount, private_key, message=None):
         if not self._validate_transaction(from_, to, amount, private_key):
             return {'error': 'invalid transaction'}
@@ -146,6 +145,27 @@ class Blockchain:
 
         return self._calculate_merkle_root(new_transactions)
 
+    def _calculate_state_merkle_root(self, contracts):
+        
+        if len(contracts) == 0:
+            return None
+
+        if len(contracts) == 1:
+            return contracts[0]
+
+        new_contracts = []
+
+        for i in range(0, len(contracts), 2):
+
+            if len(contracts) > (i+1):
+                new_contracts.append(
+                    self._hash_data(contracts[i] + contracts[i+1])
+                )
+            else:
+                new_contracts.append(contracts[i])
+
+        return self._calculate_state_merkle_root(new_contracts)    
+
     def _check_merkle_root(self, block):
         return self._calculate_merkle_root(list(block['transactions'])) \
             == block['header']['merkle_root']
@@ -187,6 +207,7 @@ class Blockchain:
         return "ok" if not results else results
 
     def _create_block(self):
+        self.state = self.state + 1
         return {
             'header': {
                 'number': len(self.chain),
@@ -194,9 +215,10 @@ class Blockchain:
                 'nonce': None,
                 'previous_block': self._get_last_block_hash(),
                 'merkle_root': None,
+                'statemerkle': None,
             },
             'transactions': {},
-            'contract_states': {},
+            'contract_states': {self.state},
             'hash': None
         }
     def _get_last_block_hash(self):
@@ -206,6 +228,11 @@ class Blockchain:
         block['transactions'], block['contract_states'] = self._choose_transactions_from_mempool(block['header']['number'])
         block['header']['merkle_root'] = \
             self._calculate_merkle_root(list(block['transactions']))
+        #print(list(block['contract_states']))
+        block['header']['statemerkle'] = \
+            self._calculate_state_merkle_root(list(block['contract_states']))
+        #print(block['header']['statemerkle'])
+        print("block['header']['statemerkle']: ", block['header']['statemerkle'])
         while True:
             block['header']['nonce'] = binascii.b2a_hex(os.urandom(16)).decode('utf-8')
             block['hash'] = self._hash_data(block['header'])
@@ -245,8 +272,7 @@ def get_block(number):
         response=json.dumps(
             blockchain.chain[number] if number < len(blockchain.chain) else None
         ),
-        status=200,
-        mimetype='application/json'
+        status=200,       mimetype='application/json'
     )
 @app.route('/api/blockchain/block', methods=['GET'])
 def get_all_blocks():
