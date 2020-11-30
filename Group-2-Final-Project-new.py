@@ -19,14 +19,18 @@ class Blockchain:
         self.wallets = {}
         self.mempool = {}
         self.add()
+        NULL_WALLET = {
+            'public_key': 'f1f91c30722f64de1c004423c091ce33',
+            'balance': 0.0,
+            }
+        self.wallets[NULL_WALLET['public_key']] = NULL_WALLET
+
 ###################### ADD CODE ONLY BETWEEN THESE LINES! #####################
     #This wallet is here to accept tokens contracts being uploaded, it has no private key because it cannot send tokens
     # any tokens sent here will be essentially gone forever
 
-    NULL_WALLET = {
-            'public_key': 'f1f91c30722f64de1c004423c091ce33',
-            'balance': 0.0,
-            }
+    
+
 
     def create_transaction(self, from_, to, amount, private_key, message=None):
         if not self._validate_transaction(from_, to, amount, private_key):
@@ -37,7 +41,7 @@ class Blockchain:
             'from': from_,
             'to': to,
             'amount': float(amount),
-            'message': message,
+            'message': {},
         }
 
         transaction_id = self._hash_data(transaction)
@@ -103,10 +107,15 @@ class Blockchain:
             transaction = copy.deepcopy(self.mempool[transaction_id])
             if type(transaction['message']) is dict:
                 prev_block = self.chain[block_num -1]
-                contract_code = self.wallets[transaction['to']]['message']
+                contract_code = self.wallets[transaction['to']]['contract_code']
                 contract_state = prev_block['contract_states']
-                sys.argv = [contract_state[self.wallets[transaction['to']]]]
-                contract_states[self.wallets[transaction['to']]] = exec(self.wallets[transaction['to']]['message'])
+                try:
+                    state = contract_state[self.wallets[transaction['to']]]
+                except:
+                    state = 0
+                sys.argv = [state]
+                contract_states[transaction['to']] = \
+                        exec(self.wallets[transaction['to']]['contract_code'])
                 transaction['to'] = 'f1f91c30722f64de1c004423c091ce33'
             if transaction['amount'] <= self.wallets[transaction['from']]['balance']:
                 self.wallets[transaction['from']]['balance'] -= transaction['amount']
@@ -307,6 +316,7 @@ def add_transaction():
             status=400,
             mimetype='application/json'
         )
+
     return Response(
         response=json.dumps(
             blockchain.create_transaction(
