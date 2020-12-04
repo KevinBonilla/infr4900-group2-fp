@@ -9,7 +9,6 @@ import ast
 import sys
 from flask import Flask, request, json, Response, render_template
 from werkzeug.utils import secure_filename
-from io import StringIO
 app = Flask(__name__)
 # ----------------------- BLOCKCHAIN CLASS ---------------------------------- #
 class Blockchain:
@@ -21,7 +20,11 @@ class Blockchain:
         self.mempool = {}
         self.state = 0
         self.add()
-       
+        NULL_WALLET = {
+            'public_key': 'f1f91c30722f64de1c004423c091ce33',
+            'balance': 0.0,
+            }
+        self.wallets[NULL_WALLET['public_key']] = NULL_WALLET
 
 ###################### ADD CODE ONLY BETWEEN THESE LINES! #####################
     #This wallet is here to accept tokens contracts being uploaded, it has no private key because it cannot send tokens
@@ -32,15 +35,12 @@ class Blockchain:
         if not self._validate_transaction(from_, to, amount, private_key):
             return {'error': 'invalid transaction'}
 
-        if message == None:
-        	message = {}
-
         transaction = {
             'time': datetime.datetime.utcnow().timestamp(),
             'from': from_,
             'to': to,
             'amount': float(amount),
-            'message': message,
+            'message': {},
         }
 
         transaction_id = self._hash_data(transaction)
@@ -63,37 +63,11 @@ class Blockchain:
                 'contract_code': contract_,
             }
             self.wallets[wallet['public_key']] = wallet 
+            print(contract_)
             gas_price = self._calculate_gas(contract_)
-            #if self.validate_file_upload(contract_):
             self.create_transaction(pub, 'f1f91c30722f64de1c004423c091ce33', gas_price, priv, contract_)
             return wallet  
-            #else:
-               # return wallet
 
-    def validate_file_upload(self, contract_):
-        contract_ = str(contract_)
-        blacklist = [
-                'import',
-                'os.',
-                #'sys.',
-                'exec',
-                'eval',
-                'open',
-                'pickle',
-                '_validate_transaction',
-                '_choose_transactions_from_mempool',
-                '_calculate_merkle_root',
-                '_create_block',
-                '_calculate_gas',
-                '_mine_block',
-                '_hash_data',
-                '_get_last_block_hash',
-                ]
-        for word in blacklist:
-            if word in contract_:
-                return False
-            else:
-                return True
 
     def _validate_transaction(self, from_, to, amount, private_key):
 
@@ -127,7 +101,6 @@ class Blockchain:
     def _choose_transactions_from_mempool(self, block_num):
         processed_transactions = {}
         contract_states = {}
-        #print(block_num)
         while len(processed_transactions) < 10 and len(self.mempool) > 0:
             transaction_id = random.choice(list(self.mempool))
             transaction = copy.deepcopy(self.mempool[transaction_id])
@@ -135,23 +108,14 @@ class Blockchain:
                 prev_block = self.chain[block_num -1]
                 contract_code = self.wallets[transaction['to']]['contract_code']
                 contract_state = prev_block['contract_states']
-                print(contract_state)
                 try:
-                    state = contract_state[transaction['to']]
+                    state = contract_state[self.wallets[transaction['to']]]
                 except:
                     state = 0
                 sys.argv = [state]
-                old_stdout = sys.stdout
-                sys.stdout = temp_stdout = StringIO()
-                exec(self.wallets[transaction['to']]['contract_code'])
-                sys.stdout = old_stdout
-                new_state = temp_stdout.getvalue()
-                new_state = int(float(new_state))
-                contract_states[transaction['to']] = new_state 
+                contract_states[transaction['to']] = \
+                        exec(self.wallets[transaction['to']]['contract_code'])
                 transaction['to'] = 'f1f91c30722f64de1c004423c091ce33'
-
-                del temp_stdout
-                del new_state
             if transaction['amount'] <= self.wallets[transaction['from']]['balance']:
                 self.wallets[transaction['from']]['balance'] -= transaction['amount']
                 self.wallets[transaction['to']]['balance'] += transaction['amount']
@@ -364,9 +328,8 @@ def add_wallet():
 def get_wallet_balances():
     return Response(
         response=json.dumps(
-        	blockchain.wallets
-            #{key: blockchain.wallets[key]['balance']
-            # for key in blockchain.wallets.keys()}
+            {key: blockchain.wallets[key]['balance']
+             for key in blockchain.wallets.keys()}
         ),
         status=200,
         mimetype='application/json'
@@ -386,7 +349,7 @@ def add_transaction():
                 request.form['from'],
                 request.form['to'],
                 request.form['amount'],
-                request.form['private_key'],
+                request.form['private_key']
             )
         ),
         status=200,
@@ -401,9 +364,4 @@ def get_mempool():
     )
 if __name__ == '__main__':
     blockchain = Blockchain()
-    NULL_WALLET = {
-        'public_key': 'f1f91c30722f64de1c004423c091ce33',
-        'balance': 0.0,
-    }
-    blockchain.wallets[NULL_WALLET['public_key']] = NULL_WALLET
     app.run(host='127.0.0.1', port=8080, debug=1)
